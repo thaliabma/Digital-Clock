@@ -55,23 +55,18 @@ reset:
 	;setando display porta C
 	ldi display, 0xFF
 	out DDRC, display
-	;setando display porta B E BOTAO RESET
-	ldi display, 0b11111110
+	;setando display porta B E beep
+	ldi display, 0b11111111
 	out DDRB, display
 
-	;ldi temp, 0x00
-	;out DDRD, temp
-
-	ldi temp,low(RAMEND) ; Set stackptr to ram end
+	;inicialização da pilha
+	ldi temp,low(RAMEND) 
 	out SPL,temp
 	ldi temp, high(RAMEND)
 	out SPH, temp
 
-	ser temp ; Set TEMP to $FF to...
-	out PORTD, temp ; ...all high for pullup on inputs
-	; ldi temp,(1<<DDD4) ; bit D6 only configured as output,
-	; out DDRD,temp ; ...output for piezo buzzer on pin D6
-	; set up int0 and int1
+	ser temp 
+	out PORTD, temp ; ativa o pullup
 
 	;Inicializar a Porta Serial
 	
@@ -88,14 +83,14 @@ reset:
 	ldi temp, (3<<UCSZ00)
 	sts UCSR0C, temp
 
-
-	ldi temp, (0b11 << ISC10) | (0b11 << ISC00) ;positive edge triggers
+	;interrupçoes
+	ldi temp, (0b11 << ISC10) | (0b11 << ISC00) 
 	sts EICRA, temp
-	;enable int0, int1
+	;ativa int0, int1
 	ldi temp, (1 << INT0) | (1 << INT1)
 	out EIMSK, temp
-	;ldi temp, (0 << PD4)
-	;out DDRD, temp ; Define o pino PD4 como entrada
+	
+	;botao 3
 	ldi temp, $04
 	sts PCICR, temp
 
@@ -103,7 +98,7 @@ reset:
 	sts PCMSK2, temp
 
 
-	;Stack initialization
+	
 	ldi temp, low(RAMEND)
 	out SPL, temp
 	ldi temp, high(RAMEND)
@@ -145,24 +140,24 @@ ldi inicial, 0x00
 
 mainLoop:
 	rcall imprimir0
-	;ldi temp, 0x00
-	;cpse qualModo, temp
-	;rjmp mainLoop
+
 	in temp, TIFR1 ;request status from timers
 	andi temp, 1<<OCF1A ;isolate only timer 1's match
 	; 0b1 << OCF1A = 0b1 << 1 = 0b00000010
 	; andi --> 1 (OCF1A é um) --> overflow
 	; andi --> 0 (OCF1A é zero) --> contando
-	breq skipoverflow ;skip overflow handler
+	breq naoContar ;skip overflow handler
 	;match handler - done once every DELAY seconds
 	ldi temp, 1<<OCF1A ;write a 1 to clear the flag
 	out TIFR1, temp
 	;overflow event code goes here
-
+	
+	;checa se ta no mode 3
 	ldi temp, 0x02
 	cpse qualModo, temp
 	rjmp pularPiscar
 
+	;checa o display do mode 3
 	ldi temp, 0x00
 	cpse qualDisplayModo3, temp
 	rjmp naoEUniSeg
@@ -201,18 +196,18 @@ mainLoop:
 
 	fazerPiscar:
 	ldi piscarDisplay, 0x00
-
+	;checa se ta no mode 2 ou 3, se tiver ele pula para o modoDois e se tiver no 0, ele continua contando
 	pularPiscar:
 	ldi temp, 0x00
 	cpse qualModo, temp
 	rjmp modoDois
 	inc contUniSeg
 	rcall portaSerial
-	skipoverflow:
-	;main application processing goes here
+	naoContar:
 	nop
 	rjmp unidadeSegundoZERO
 
+;só conta o segundo quando o qualStart for 1
 modoDois:
 	ldi temp, 0x01
 	cpse qualModo, temp
@@ -223,7 +218,7 @@ modoDois:
 	inc contUniSeg
 	rjmp unidadeSegundoZERO
 
-
+;incrementa o display e faz algumas checagens de mudar de 9 para 0 e 5 para 0
 incrementaContador:
 	ldi temp, 0x0A
 	cpse contUniSeg, temp
@@ -250,6 +245,7 @@ incrementaContador:
 
 	rjmp mainLoop
 
+;Próximas funções imprimem no display de acordo com o numero dos contadores
 unidadeSegundoZERO:
 	; Verifica se o valor do display das unidades dos segundos é 0
 	ldi temp, 0x00
@@ -718,8 +714,10 @@ dezenaMinutoCINCO:
 	rjmp incrementaContador
 
 BotaoMode:
+	;saida do beep
 	ldi display, 0b00000001
 	out PORTB, display
+	;checa o  qualModo, se for 1 e 2, ele zera e chama as funções que lidam com o modo e se for do 3 pro 1 ele continua
 	ldi piscarDisplay, 0x00
 	ldi temp, 0x02
 	cpse qualModo, temp
@@ -788,6 +786,8 @@ imprimirZero:
 	ret
 
 BotaoStart:
+	;se o qualModo for 1 ele verifica o qualStart, se for zero ele zera e for 1 ele continua de onde parou. 
+	;Se qualMode for o 3, ele muda o display 
 	ldi display, 0b00000001
 	out PORTB, display
 	ldi temp, 0x01
@@ -831,7 +831,7 @@ BotaoStart:
 	rcall printSerialModo3D4 // dez min
 	reti
 
-	
+
 botaoResetUniSeg:
 	ldi temp, 0x00
 	cpse verificarResetModo3, temp
@@ -896,6 +896,7 @@ mudarBotaoModo3:
 	ldi verificarResetModo3, 0x00
 	reti
 
+;verifica o modo, se tiver no 2 e qualStart for 0 ele zera o cronomotero e se tiver no 3 ele acrescenta 1 ao display correspondente
 BotaoReset:
 	ldi display, 0b00000001
 	out PORTB, display
@@ -937,6 +938,7 @@ BotaoReset:
 	ldi contUniSeg, 0x00
 	reti
 
+; imprime na porta serial de acordo com o modo
 portaSerial:
 	rcall serialModo
 	ldi temp, 0x00
@@ -948,7 +950,7 @@ portaSerial:
 	ret
 	rcall printSerialZero
 	ret
-
+;imprime o Modo x, de acordo com o qualModo
 serialModo:
 	ldi byte_tx, '['
     rcall transmit
@@ -973,6 +975,8 @@ serialModo:
 	ret
 
 imprimir0:
+
+;imprime a contagem do modo
 	ldi temp, 0x00
 	cpse inicial, temp
 	ret
